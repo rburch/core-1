@@ -47,8 +47,7 @@ class MediaManager extends Widget implements uploadable
 	 * @var string
 	 */
 	protected $strTemplate = 'be_widget';
-
-
+    
 	/**
 	 * Add specific attributes
 	 * @param string
@@ -79,7 +78,10 @@ class MediaManager extends Widget implements uploadable
 	 */
 	public function validate()
 	{
-		$this->varValue = $this->getPost($this->strName);
+        $this->import('Files');
+        $this->import('Database');
+        $this->import('BackendUser', 'User');
+        $this->varValue = $this->getPost($this->strName);
         $total_images = 0;
 
         // Test, if they are already files
@@ -93,102 +95,27 @@ class MediaManager extends Widget implements uploadable
                 }
             }
         }        
-        
-        $maxlength_kb = number_format(($GLOBALS['TL_CONFIG']['maxFileSize']/1024), 1, $GLOBALS['TL_LANG']['MSC']['decimalSeparator'], $GLOBALS['TL_LANG']['MSC']['thousandsSeparator']);
-        
-        foreach (range(1, $GLOBALS['TL_CONFIG']['uploadFields']) as $value)
-        {
 
-            $strName = $this->strName . $value;
-            $file = $_FILES[$strName];
-
-            // Romanize the filename
-            $file['name'] = utf8_romanize($file['name']);
-
-            // File was not uploaded
-            if (!is_uploaded_file($file['tmp_name']))
+        if ($this->User->uploader == "ValumsBeFileUpload") {
+            $objSession = Session::getInstance();
+            $arrConf = $objSession->get('VALUM_CONFIG');
+            $valums_dir = TL_ROOT . '/' . $arrConf['uploadFolder'];
+            $files = glob( $valums_dir . "/*.*");
+            foreach ($files as $file)
             {
-                if (in_array($file['error'], array(1, 2)))
-                {
-                    $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filesize'], $maxlength_kb));
-                    $this->log('File "'.$file['name'].'" exceeds the maximum file size of '.$maxlength_kb.' kB', __METHOD__, TL_ERROR);
-                }
-
-                if ($file['error'] == 3)
-                {
-                    $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filepartial'], $file['name']));
-                    $this->log('File "'.$file['name'].'" was only partially uploaded', __METHOD__, TL_ERROR);
-                }
-
-                unset($_FILES[$strName]);
-                continue;
-            }
-
-            // File is too big
-            if ($GLOBALS['TL_CONFIG']['maxFileSize'] > 0 && $file['size'] > $GLOBALS['TL_CONFIG']['maxFileSize'])
-            {
-                $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filesize'], $maxlength_kb));
-                $this->log('File "'.$file['name'].'" exceeds the maximum file size of '.$maxlength_kb.' kB', __METHOD__, TL_ERROR);
-
-                unset($_FILES[$strName]);
-                continue;
-            }
-
-            $pathinfo = pathinfo($file['name']);
-            $uploadTypes = trimsplit(',', $GLOBALS['TL_DCA'][$this->strTable]['fields'][$this->strField]['eval']['extensions']);
-
-            // File type is not allowed
-            if (!in_array(strtolower($pathinfo['extension']), $uploadTypes))
-            {
-                $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filetype'], $pathinfo['extension']));
-                $this->log('File type "'.$pathinfo['extension'].'" is not allowed to be uploaded ('.$file['name'].')', __METHOD__, TL_ERROR);
-
-                unset($_FILES[$strName]);
-                continue;
-            }
-
-            if (($arrImageSize = @getimagesize($file['tmp_name'])) != false)
-            {
-                // Image exceeds maximum image width
-                if ($arrImageSize[0] > $GLOBALS['TL_CONFIG']['imageWidth'] || $arrImageSize[0] > $GLOBALS['TL_CONFIG']['gdMaxImgWidth'])
-                {
-                    $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filewidth'], $file['name'], $GLOBALS['TL_CONFIG']['imageWidth']));
-                    $this->log('File "'.$file['name'].'" exceeds the maximum image width of '.$GLOBALS['TL_CONFIG']['imageWidth'].' pixels', __METHOD__, TL_ERROR);
-
-                    unset($_FILES[$strName]);
-                    continue;
-                }
-
-                // Image exceeds maximum image height
-                if ($arrImageSize[1] > $GLOBALS['TL_CONFIG']['imageHeight'] || $arrImageSize[1] > $GLOBALS['TL_CONFIG']['gdMaxImgHeight'])
-                {
-                    $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['fileheight'], $file['name'], $GLOBALS['TL_CONFIG']['imageHeight']));
-                    $this->log('File "'.$file['name'].'" exceeds the maximum image height of '.$GLOBALS['TL_CONFIG']['imageHeight'].' pixels', __METHOD__, TL_ERROR);
-
-                    unset($_FILES[$strName]);
-                    continue;
-                }
-            }
-
-            // Save file in the isotope folder
-            if (!$this->hasErrors())
-            {
-                $this->import('Files');
-                $this->import('Database');
-
-                $pathinfo = pathinfo($file['name']);
+                $pathinfo = pathinfo($file);
                 $strCacheName = standardize($pathinfo['filename'], true) . '.' . $pathinfo['extension'];
                 $uploadFolder = 'isotope/' . substr($strCacheName, 0, 1);
 
-                if (is_file(TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName) && md5_file($file['tmp_name']) != md5_file(TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName))
+                if (is_file(TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName) && md5_file($file) != md5_file(TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName))
                 {
                     $strCacheName = standardize($pathinfo['filename'], true) . '-' . substr(md5_file($file['tmp_name']), 0, 8) . '.' . $pathinfo['extension'];
                     $uploadFolder = 'isotope/' . substr($strCacheName, 0, 1);
-                }
-
+                }                
+                
                 // Make sure directory exists
                 $this->Files->mkdir($uploadFolder);
-                $this->Files->move_uploaded_file($file['tmp_name'], $uploadFolder . '/' . $strCacheName);
+                copy($file, TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName);
                 $total_images++;
 
                 if (!is_array($this->varValue))
@@ -198,11 +125,118 @@ class MediaManager extends Widget implements uploadable
 
                 $this->varValue[] = array('src'=>$strCacheName, 'translate'=>(!$_SESSION['BE_DATA']['language'][$this->strTable][$this->currentRecord] ? '' : 'all'));
             }
+            rmdir($valums_dir);
+        }
+        else {
+
+            $maxlength_kb = number_format(($GLOBALS['TL_CONFIG']['maxFileSize']/1024), 1, $GLOBALS['TL_LANG']['MSC']['decimalSeparator'], $GLOBALS['TL_LANG']['MSC']['thousandsSeparator']);
             
-            unset($_FILES[$strName]);            
+            foreach (range(1, $GLOBALS['TL_CONFIG']['uploadFields']) as $value)
+            {
+
+                $strName = $this->strName . $value;
+                $file = $_FILES[$strName];
+
+                // Romanize the filename
+                $file['name'] = utf8_romanize($file['name']);
+
+                // File was not uploaded
+                if (!is_uploaded_file($file['tmp_name']))
+                {
+                    if (in_array($file['error'], array(1, 2)))
+                    {
+                        $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filesize'], $maxlength_kb));
+                        $this->log('File "'.$file['name'].'" exceeds the maximum file size of '.$maxlength_kb.' kB', __METHOD__, TL_ERROR);
+                    }
+
+                    if ($file['error'] == 3)
+                    {
+                        $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filepartial'], $file['name']));
+                        $this->log('File "'.$file['name'].'" was only partially uploaded', __METHOD__, TL_ERROR);
+                    }
+
+                    unset($_FILES[$strName]);
+                    continue;
+                }
+
+                // File is too big
+                if ($GLOBALS['TL_CONFIG']['maxFileSize'] > 0 && $file['size'] > $GLOBALS['TL_CONFIG']['maxFileSize'])
+                {
+                    $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filesize'], $maxlength_kb));
+                    $this->log('File "'.$file['name'].'" exceeds the maximum file size of '.$maxlength_kb.' kB', __METHOD__, TL_ERROR);
+
+                    unset($_FILES[$strName]);
+                    continue;
+                }
+
+                $pathinfo = pathinfo($file['name']);
+                $uploadTypes = trimsplit(',', $GLOBALS['TL_DCA'][$this->strTable]['fields'][$this->strField]['eval']['extensions']);
+
+                // File type is not allowed
+                if (!in_array(strtolower($pathinfo['extension']), $uploadTypes))
+                {
+                    $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filetype'], $pathinfo['extension']));
+                    $this->log('File type "'.$pathinfo['extension'].'" is not allowed to be uploaded ('.$file['name'].')', __METHOD__, TL_ERROR);
+
+                    unset($_FILES[$strName]);
+                    continue;
+                }
+
+                if (($arrImageSize = @getimagesize($file['tmp_name'])) != false)
+                {
+                    // Image exceeds maximum image width
+                    if ($arrImageSize[0] > $GLOBALS['TL_CONFIG']['imageWidth'] || $arrImageSize[0] > $GLOBALS['TL_CONFIG']['gdMaxImgWidth'])
+                    {
+                        $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['filewidth'], $file['name'], $GLOBALS['TL_CONFIG']['imageWidth']));
+                        $this->log('File "'.$file['name'].'" exceeds the maximum image width of '.$GLOBALS['TL_CONFIG']['imageWidth'].' pixels', __METHOD__, TL_ERROR);
+
+                        unset($_FILES[$strName]);
+                        continue;
+                    }
+
+                    // Image exceeds maximum image height
+                    if ($arrImageSize[1] > $GLOBALS['TL_CONFIG']['imageHeight'] || $arrImageSize[1] > $GLOBALS['TL_CONFIG']['gdMaxImgHeight'])
+                    {
+                        $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['fileheight'], $file['name'], $GLOBALS['TL_CONFIG']['imageHeight']));
+                        $this->log('File "'.$file['name'].'" exceeds the maximum image height of '.$GLOBALS['TL_CONFIG']['imageHeight'].' pixels', __METHOD__, TL_ERROR);
+
+                        unset($_FILES[$strName]);
+                        continue;
+                    }
+                }
+
+                // Save file in the isotope folder
+                if (!$this->hasErrors())
+                {
+                    $pathinfo = pathinfo($file['name']);
+                    $strCacheName = standardize($pathinfo['filename'], true) . '.' . $pathinfo['extension'];
+                    $uploadFolder = 'isotope/' . substr($strCacheName, 0, 1);
+
+                    if (is_file(TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName) && md5_file($file['tmp_name']) != md5_file(TL_ROOT . '/' . $uploadFolder . '/' . $strCacheName))
+                    {
+                        $strCacheName = standardize($pathinfo['filename'], true) . '-' . substr(md5_file($file['tmp_name']), 0, 8) . '.' . $pathinfo['extension'];
+                        $uploadFolder = 'isotope/' . substr($strCacheName, 0, 1);
+                    }
+
+                    // Make sure directory exists
+                    $this->Files->mkdir($uploadFolder);
+                    $this->Files->move_uploaded_file($file['tmp_name'], $uploadFolder . '/' . $strCacheName);
+                    $total_images++;
+
+                    if (!is_array($this->varValue))
+                    {
+                        $this->varValue = array();
+                    }
+
+                    $this->varValue[] = array('src'=>$strCacheName, 'translate'=>(!$_SESSION['BE_DATA']['language'][$this->strTable][$this->currentRecord] ? '' : 'all'));
+                }
+                
+                unset($_FILES[$strName]);            
+            }
         }
 
-        // Test, if file specified
+        
+        // Test, if a file exists
         if ($this->mandatory && $total_images == 0)
         {
             $this->addError(sprintf($GLOBALS['TL_LANG']['ERR']['mandatory'], $this->strLabel));
@@ -219,6 +253,7 @@ class MediaManager extends Widget implements uploadable
 	{
 		$blnLanguage = false;
 		$this->import('Database');
+        $this->import('BackendUser', 'User');
 
 		// Merge parent record data
 		if ($_SESSION['BE_DATA']['language'][$this->strTable][$this->currentRecord] != '')
@@ -235,7 +270,14 @@ class MediaManager extends Widget implements uploadable
 		$GLOBALS['TL_JAVASCRIPT'][] = TL_PLUGINS_URL . 'plugins/mediabox/' . MEDIABOX . '/js/mediabox.js';
 		$GLOBALS['TL_JAVASCRIPT'][] = TL_PLUGINS_URL . 'system/modules/isotope/html/mediabox_init.js';
 
-		$arrButtons = array('up', 'down', 'delete');
+		$arrButtons = array('up', 'down');
+        if (array_key_exists('backboneit_imagetools', $GLOBALS['BE_MOD']['system']['files'])) 
+        {
+// Add next line after update of backboneit_imagetools        
+//            array_push($arrButtons, 'backboneit_imagetools');
+        }
+        array_push($arrButtons, 'delete');
+        
 		$strCommand = 'cmd_' . $this->strField;
 
 		// Change the order
@@ -267,14 +309,126 @@ class MediaManager extends Widget implements uploadable
 						$GLOBALS['TL_LANG']['MSC']['mmUpload']
 						);
 
-        foreach (range(1, $GLOBALS['TL_CONFIG']['uploadFields']) as $value)
+        
+        if ($this->User->uploader == "ValumsBeFileUpload")
         {
-            $upload .= sprintf('<p><input type="file" name="%s%d" id="ctrl_%s%d_upload" class="upload%s"></p>',
-                            $this->strName,
-                            $value,
-                            $this->strId,
-                            $value,
-                            (strlen($this->strClass) ? ' ' . $this->strClass : ''));
+            
+            $valums_dir = 'system/tmp/valums_' . rand(10000000, 99999999);
+            mkdir(TL_ROOT . '/' . $valums_dir, 0777);
+
+            $objSession = Session::getInstance();
+            $objSession->set('VALUM_CONFIG', 
+                array(
+                    'fileCount' => 0,
+                    'maxFileCount' => 0,
+                    'uploadFolder' => $valums_dir,
+                    'maxFileLength' => $GLOBALS['TL_CONFIG']['maxFileSize'],
+                    'extension' => "jpg,jpeg,gif,png",
+                    'doNotOverwrite' => 'overwriteFile'
+                )
+            );            
+        
+            $GLOBALS['TL_CSS'][] = 'system/modules/valumsFileUploader/html/css/valumsFileUploader.css';
+            if (version_compare(VERSION, '2.10', '<'))
+            {
+                $GLOBALS['TL_CSS'][] = 'plugins/ajax-upload/css/ajaxupload.css';
+            }
+            else
+            {
+                $GLOBALS['TL_CSS'][] = TL_PLUGINS_URL . 'plugins/ajax-upload/css/ajaxupload.css';
+            }
+
+            $GLOBALS['TL_JAVASCRIPT'][] = 'system/modules/valumsFileUploader/html/js/vfuHelper.js';
+            if (version_compare(VERSION, '2.10', '<'))
+            {
+                $GLOBALS['TL_JAVASCRIPT'][] = 'plugins/ajax-upload/js/ajaxupload.js';
+            }
+            else
+            {
+                $GLOBALS['TL_JAVASCRIPT'][] = TL_PLUGINS_URL . 'plugins/ajax-upload/js/ajaxupload.js';
+            }
+            $GLOBALS['TL_JAVASCRIPT'][] = 'system/modules/valumsFileUploader/html/js/valumsFileUploader.js';            
+
+            
+            
+            $upload .=  "
+              <div class=\"backend\" id=\"file-uploader\">
+                <noscript>
+                    <p>
+                        " . sprintf($GLOBALS['TL_LANG']['ERR']['val_be_noscript'], $this->Environment->scriptName . '?do=login') . "
+                    </p>
+                </noscript>
+                <script type=\"text/javascript\">
+                    function createUploader(vfu) {
+                        var uploader = new qq.FileUploader(
+                            { element: document.getElementById('file-uploader'),
+                              action: 'system/modules/valumsFileUploader/ValumsAjaxRequest.php',
+                              params: {
+                                action: 'valumsFileUploader'
+                              },
+                              allowedExtensions: ['jpg','jpeg','gif','png'],
+                              debug: false,
+                              sizeLimit: 2048000,
+                              template: '<div class=\"qq-uploader\">' + 
+                                '<div class=\"qq-upload-drop-area\"><span>Zum Hochladen die Datei in dieses Feld ziehen<\/span><\/div>' +
+                                '<div class=\"qq-upload-button\">Durchsuchen oder Dateien via Drag & Drop hier ablegen<\/div>' +
+                                '<ul class=\"qq-upload-list\"><\/ul>' + 
+                                '<\/div>',
+                              fileTemplate: '<li>' +
+                                '<span class=\"qq-upload-file\"><\/span>' +
+                                '<span class=\"qq-upload-spinner\"><\/span>' +
+                                '<span class=\"qq-upload-size\"><\/span>' +
+                                '<a class=\"qq-upload-cancel\" href=\"#\">Abbrechen<\/a>' +
+                                '<span class=\"qq-upload-text\"><\/span>' +
+                                '<\/li>',
+                            messages: {
+                                typeError: \"{file}ist ein nicht erlaubter Dateityp. Nur die Dateitypen{extensions}sind erlaubt.\",
+                                sizeError: \"{file}ist zu groß,die maximal erlaubte Dateigröße ist{sizeLimit}.\",
+                                minSizeError: \"{file}ist zu klein,die minimal erlaubte Dateigröße ist{minSizeLimit}.\",
+                                emptyError: \"{file}ist leer,bitte wählen Sie diese Datei nicht mehr aus.\",
+                                onLeave: \"Die Daten werden hochgeladen,wenn Sie die Seite jetzt verlassen wird der Prozess abgebrochen.\"
+                              }
+                              ,
+                              
+                              onComplete: function(id,fileName,responseJSON){
+                                vfu.setId(id);
+                                vfu.setfileName(fileName);
+                                vfu.setResponseJSON(responseJSON);
+                                vfu.run(id,fileName,responseJSON);
+                              }
+                            }
+                        );
+                    }
+                    window.addEvent('domready', function(){
+                        var vfu = new ValumsFileUploader({
+                            'action': 'system/modules/valumsFileUploader/ValumsAjaxRequest.php',
+                            'actionParam': 'valumsFileUploader',
+                            'fflId': '',
+                            'fflIdName': 'file-uploader',
+                            'failureMassage': '" . $GLOBALS['TL_LANG']['UPL']['upload_failed_text'] . "',
+                            'detailsFailureMessage': true,
+                            'allowDelete': false
+                        });
+                        createUploader(vfu);
+                    });
+                </script>
+                <p class=\"tl_help tl_tip\">
+                    " . $GLOBALS['TL_LANG']['UPL']['be_upload_file']['1'] . "
+                </p>
+              </div>
+            ";
+        }
+        else {
+                        
+            foreach (range(1, $GLOBALS['TL_CONFIG']['uploadFields']) as $value)
+            {
+                $upload .= sprintf('<p><input type="file" name="%s%d" id="ctrl_%s%d_upload" class="upload%s"></p>',
+                                $this->strName,
+                                $value,
+                                $this->strId,
+                                $value,
+                                (strlen($this->strClass) ? ' ' . $this->strClass : ''));
+            }
         }
                         
 		$return = '<div id="ctrl_' . $this->strId . '">';
@@ -356,6 +510,15 @@ class MediaManager extends Widget implements uploadable
 				{
 					continue;
 				}
+                if ($button == 'backboneit_imagetools')
+                {
+                    $return .= "<a href=\"/contao/main.php?do=files&amp;key=backboneit_imagetools&amp;id=" . $strFile . "&amp;iso_product=" . $this->currentRecord . "\""
+                               . ' title="' . specialchars($GLOBALS['TL_LANG'][$this->strTable]['wz_' . $button]) . '">'
+                               . $this->generateImage('system/modules/backboneit_imagetools/images/imagetools.gif', $GLOBALS['TL_LANG'][$this->strTable]['wz_' . $button], 'class="tl_listwizard_img"')
+                               . '</a> '
+                               ;
+                    continue;
+                }
 
 				$return .= '<a href="'.$this->addToUrl('&amp;'.$strCommand.'='.$button.'&amp;cid='.$i.'&amp;id='.$this->currentRecord).'" title="'.specialchars($GLOBALS['TL_LANG'][$this->strTable]['wz_'.$button]).'" onclick="Isotope.mediaManager(this, \''.$button.'\',  \'ctrl_'.$this->strId.'\'); return false;">'.$this->generateImage($button.'.gif', $GLOBALS['TL_LANG'][$this->strTable]['wz_'.$button], 'class="tl_listwizard_img"').'</a> ';
 			}
