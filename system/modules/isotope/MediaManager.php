@@ -271,7 +271,7 @@ class MediaManager extends Widget implements uploadable
 		$GLOBALS['TL_JAVASCRIPT'][] = TL_PLUGINS_URL . 'system/modules/isotope/html/mediabox_init.js';
 
 		$arrButtons = array('up', 'down');
-        if (array_key_exists('backboneit_imagetools', $GLOBALS['BE_MOD']['system']['files'])) 
+        if (in_array('backboneit_imagetools', $this->Config->getActiveModules()))
         {
 // Add next line after update of backboneit_imagetools        
 //            array_push($arrButtons, 'backboneit_imagetools');
